@@ -67,26 +67,26 @@ jobs:
         run: npm install -g firebase-tools
 
       # ============================================
-      # PASUL 4: Pornire Firebase Emulator Suite în background
+      # PASUL 4: Pornire Firebase Emulator în background
       # ============================================
       - name: Start Firebase Emulator Suite
         run: |
-          firebase emulators:start --project ${{ env.FIREBASE_PROJECT_ID }} &
+          firebase emulators:start --project ${{ env.FIREBASE_PROJECT_ID }} > emulator.log 2>&1 &
           echo "EMULATOR_PID=$!" >> $GITHUB_ENV
 
       # ============================================
-      # PASUL 5: Așteptare emulatoare (Timp extins pentru download)
+      # PASUL 5: Așteptare emulatoare + LOGURI CRITICE LA EȘEC
       # ============================================
       - name: Wait for emulators to be ready
         run: |
           echo "Waiting for Firestore emulator (8080)..."
-          npx wait-on tcp:127.0.0.1:8080 --timeout 180000
+          npx wait-on tcp:127.0.0.1:8080 --timeout 120000 || (echo "🔥 EROARE EMULATOR:" && cat emulator.log && cat firebase-debug.log && exit 1)
           
           echo "Waiting for Auth emulator (9099)..."
-          npx wait-on tcp:127.0.0.1:9099 --timeout 180000
+          npx wait-on tcp:127.0.0.1:9099 --timeout 120000
           
           echo "Waiting for Functions emulator (5001)..."
-          npx wait-on tcp:127.0.0.1:5001 --timeout 180000
+          npx wait-on tcp:127.0.0.1:5001 --timeout 120000
           echo "All emulators are up."
 
       - name: Seed database
