@@ -1,0 +1,116 @@
+name: E2E Tests (Playwright + Firebase Emulator)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e-tests:
+    name: Run E2E Tests
+    runs-on: ubuntu-latest
+
+    env:
+      FIREBASE_PROJECT_ID: examflow-mihaid
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+      FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+
+    steps:
+      # ============================================
+      # CHECKOUT
+      # ============================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ============================================
+      # SETUP NODE.JS 20
+      # ============================================
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # ============================================
+      # PASUL 1: Instalare dependențe în cele 3 locații
+      # ============================================
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies (web-app)
+        working-directory: ./web-app
+        run: npm ci
+
+      - name: Install backend dependencies (functions)
+        working-directory: ./functions
+        run: npm ci
+
+      # ============================================
+      # PASUL 2: Instalare browsere Playwright (Chromium + deps sistem)
+      # ============================================
+      - name: Install Playwright Chromium with system dependencies
+        run: npx playwright install --with-deps chromium
+
+      # ============================================
+      # PASUL 3: Instalare globală Firebase CLI
+      # ============================================
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      # ============================================
+      # PASUL 4: Pornire Firebase Emulator Suite în background
+      # ============================================
+      - name: Start Firebase Emulator Suite
+        run: |
+          firebase emulators:start --project ${{ env.FIREBASE_PROJECT_ID }} &
+          echo "EMULATOR_PID=$!" >> $GITHUB_ENV
+
+      # ============================================
+      # PASUL 5: Așteptare emulatoare + seed bază de date
+      # Folosim un wait robust pe porturi în loc de sleep fix
+      # ============================================
+      - name: Wait for emulators to be ready
+        run: |
+          echo "Waiting for Firestore emulator (8080)..."
+          npx wait-on tcp:127.0.0.1:8080 --timeout 60000
+          echo "Waiting for Auth emulator (9099)..."
+          npx wait-on tcp:127.0.0.1:9099 --timeout 60000
+          echo "Waiting for Functions emulator (5001)..."
+          npx wait-on tcp:127.0.0.1:5001 --timeout 60000
+          echo "All emulators are up."
+
+      - name: Seed database
+        working-directory: ./functions
+        env:
+          FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099"
+          FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080"
+        run: node seed.js
+
+      # ============================================
+      # PASUL 6: Pornire server Vite frontend în background
+      # ============================================
+      - name: Start Vite dev server
+        working-directory: ./web-app
+        run: |
+          npm run dev &
+          echo "VITE_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for Vite dev server
+        run: npx wait-on http://localhost:5173 --timeout 60000
+
+      # ============================================
+      # PASUL 7: Execuția testelor Playwright
+      # ============================================
+      - name: Run Playwright E2E tests
+        run: npx playwright test
+
+      # ============================================
+      # PASUL 8: Salvare raport ca artifact (întotdeauna)
+      # ============================================
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
