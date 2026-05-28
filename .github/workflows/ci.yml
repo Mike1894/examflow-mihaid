@@ -75,17 +75,18 @@ jobs:
           echo "EMULATOR_PID=$!" >> $GITHUB_ENV
 
       # ============================================
-      # PASUL 5: Așteptare emulatoare + seed bază de date
-      # Folosim un wait robust pe porturi în loc de sleep fix
+      # PASUL 5: Așteptare emulatoare (Timp extins pentru download)
       # ============================================
       - name: Wait for emulators to be ready
         run: |
           echo "Waiting for Firestore emulator (8080)..."
-          npx wait-on tcp:127.0.0.1:8080 --timeout 60000
+          npx wait-on tcp:127.0.0.1:8080 --timeout 180000
+          
           echo "Waiting for Auth emulator (9099)..."
-          npx wait-on tcp:127.0.0.1:9099 --timeout 60000
+          npx wait-on tcp:127.0.0.1:9099 --timeout 180000
+          
           echo "Waiting for Functions emulator (5001)..."
-          npx wait-on tcp:127.0.0.1:5001 --timeout 60000
+          npx wait-on tcp:127.0.0.1:5001 --timeout 180000
           echo "All emulators are up."
 
       - name: Seed database
