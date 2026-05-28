@@ -1,0 +1,98 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================
+    // FUNCȚII HELPER (refolosite în reguli)
+    // ============================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && request.auth.token.role == role;
+    }
+
+    function isProfessor() {
+      return hasRole('professor');
+    }
+
+    function isStudent() {
+      return hasRole('student');
+    }
+
+    // ============================================
+    // COLECȚIA: users
+    // Fiecare utilizator citește exclusiv propriul document
+    // ============================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      // Scrierea se face exclusiv prin Cloud Functions (Admin SDK ocolește regulile)
+      allow write: if false;
+    }
+
+    // ============================================
+    // COLECȚIA: sali
+    // Catalog public pentru orice utilizator autentificat
+    // ============================================
+
+    match /sali/{salaId} {
+      allow read: if isAuthenticated();
+      // Sălile sunt configurate administrativ, nu prin client
+      allow write: if false;
+    }
+
+    // ============================================
+    // COLECȚIA: sesiuni_sloturi
+    // Citire: oricine autentificat (studenți și profesori)
+    // Creare/Modificare: doar profesori
+    // ============================================
+
+    match /sesiuni_sloturi/{slotId} {
+      allow read: if isAuthenticated();
+
+      // La creare, profesorul devine automat owner-ul slotului
+      allow create: if isProfessor()
+                    && request.resource.data.profesorId == request.auth.uid
+                    && request.resource.data.locuriOcupate == 0;
+
+      // Profesorul poate modifica doar propriile sloturi
+      // Câmpul locuriOcupate poate fi modificat doar prin Cloud Function (tranzacție)
+      allow update: if isProfessor()
+                    && resource.data.profesorId == request.auth.uid
+                    && request.resource.data.locuriOcupate == resource.data.locuriOcupate;
+
+      allow delete: if isProfessor()
+                    && resource.data.profesorId == request.auth.uid
+                    && resource.data.locuriOcupate == 0;
+
+      // ============================================
+      // SUBCOLECȚIA: inscrieri_studenti
+      // Creare: doar student, propriul uid, slot nealocat și nedeschis
+      // ============================================
+
+      match /inscrieri_studenti/{studentId} {
+        allow read: if isAuthenticated() && (
+          // Studentul își poate vedea propria înscriere
+          request.auth.uid == studentId ||
+          // Profesorul slotului vede toți studenții înscriși
+          get(/databases/$(database)/documents/sesiuni_sloturi/$(slotId)).data.profesorId == request.auth.uid
+        );
+
+        // Creare: doar studentul însuși, doar dacă slotul NU este blocat
+        // Această regulă este o a doua linie de apărare; logica principală
+        // se aplică în Cloud Function (tranzacție atomică)
+        allow create: if isStudent()
+                      && request.auth.uid == studentId
+                      && get(/databases/$(database)/documents/sesiuni_sloturi/$(slotId)).data.status != 'closed';
+
+        // Studenții nu își pot modifica înscrierea direct
+        // Anularea trebuie să treacă tot prin Cloud Function (pentru a decrementa contorul)
+        allow update, delete: if false;
+      }
+    }
+  }
+}
