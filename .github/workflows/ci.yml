@@ -52,6 +52,15 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # ============================================
+      # SETUP JAVA (Obligatoriu pentru Firestore)
+      # ============================================
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # ============================================
       # PASUL 3: Instalare globală Firebase CLI
       # ============================================
       - name: Install Firebase CLI
